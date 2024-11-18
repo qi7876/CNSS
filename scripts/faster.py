@@ -19,7 +19,6 @@ print(f"\nExtracted Expression: {expression}")
 clean_expression = expression.replace(" ", "")
 result = eval(clean_expression)
 print(f"Calculated Result: {result}")
-
 post_data = {"result": str(result)}
 
 post_response = session.post(url, data=post_data)
